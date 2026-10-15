@@ -1,6 +1,7 @@
 import asyncio
 import pygame
 import random
+from collections import deque
 pygame.init() # initialise pygame #
 
 grey = (80,80,80)		# définit les couleurs #
@@ -76,15 +77,19 @@ lifeNb_two = 3		# 3 vies pour le serpent 2 au lancement du jeu #
 
 block_size = 20			# définit la largeur et la hauteur d'un bloc #
 gameSpeed = 15				# définit la vitesse du jeu #
+game_mode = 1				# 1 = un joueur contre le bot, 2 = deux joueurs #
+bot_mistake_chance = 0.25	# probabilité que le bot ne réfléchisse pas pendant une boucle (le rend battable) #
 
 background_img = pygame.image.load('SNAKZbackground.png')	# image de fond #
 bgline_img = pygame.image.load('bgline.png')		# ligne grise pour le fond #
 
 menuselect_img = pygame.image.load('menuselect.png')	# sélection dans le menu #
+menu1player_img = pygame.image.load('menu(1player).png')	# 1 joueur sélectionné #
 menu2players_img = pygame.image.load('menu(2players).png')
 
 paused_img = pygame.image.load('paused.png')	# écran pause #
 pausedplay_img = pygame.image.load('paused(play).png')
+pausedmenu_img = pygame.image.load('paused(menu).png')
 
 bgshad_img = pygame.image.load('bgshad.png')	# contour du jeu sombre #
 screen_img = pygame.image.load('SNAKZscreen.png')	# effet écran #
@@ -106,8 +111,10 @@ for w in range(15):
 # ------- on créer d'abord des fonctions qu'on utilisera plus tard ------------------------------------------------------------------------------------------------------------------------------ #
 
 async def game_intro():		# page d'accueil #
-	print("Move: Arrow Keys / ZQSD")		# on écrit les contrôles sur l'idle python #
-	print("Sprint: 0(num) / lShift")
+	global game_mode
+	print("Menu: Space to play or pause")
+	print("Controls: Arrow Keys / WASD / ZQSD")		# on écrit les contrôles sur l'idle python #
+	print("Boosts: rShift / lShift (both work in 1 player mode)")
 	print("Restart: R")
 	print("Change gameSpeed: + / - / Enter(num)")
 	print("Boost Generator: 1 / 2 / 3 / 4 (num)")
@@ -119,6 +126,8 @@ async def game_intro():		# page d'accueil #
 				pygame.quit()
 				quit()									# ferme la fenêtre #
 			if event.type == pygame.KEYDOWN:
+				if event.key == pygame.K_UP or event.key == pygame.K_DOWN:		# flèches = on change de mode #
+					game_mode = 3 - game_mode
 				if event.key == pygame.K_SPACE:			# si on appuie sur Espace #
 					intro = False						# on sort de la boucle intro, le jeu commence #
 				if event.key == pygame.K_ESCAPE:		# si on appuie sur Echap #
@@ -131,7 +140,10 @@ async def game_intro():		# page d'accueil #
 		t = random.randrange(20)
 		gameDisplay.blit(titles[t], (0,0))			# à chaque boucle, on affiche un des titres stockés dans titles #
 		gameDisplay.blit(menuselect_img, (0, 0))	# affiche 1 player, 2 players, options #
-		gameDisplay.blit(menu2players_img, (0, 0))	# la sélection est sur 2 joueurs (à modifier) #
+		if game_mode == 1:
+			gameDisplay.blit(menu1player_img, (0, 0))	# la sélection est sur 1 joueur #
+		else:
+			gameDisplay.blit(menu2players_img, (0, 0))	# la sélection est sur 2 joueurs #
 		gameDisplay.blit(bgshad_img, (0, 0))		# affiche l'ombre #
 		gameDisplay.blit(screen_img, (0, 0))		# affiche le faux écran #
 
@@ -167,11 +179,22 @@ async def pause():																# fonction pause #
 	global zis2
 	global zis3
 	global zis4
+	global lifeNb_one
+	global lifeNb_two
 	paused = True															# paused = vrai #
-	gameDisplay.blit(paused_img, (0, 0))
-	gameDisplay.blit(pausedplay_img, (0, 0))
+	pause_choice = "play"				# PLAY ou MENU, choisi avec les flèches #
+	game_frame = gameDisplay.copy()		# on garde l'image du jeu pour pouvoir redessiner le menu par-dessus #
 
-	pygame.display.update()													# réactualise l'affichage #
+	def draw_pause():
+		gameDisplay.blit(game_frame, (0, 0))
+		gameDisplay.blit(paused_img, (0, 0))
+		if pause_choice == "play":
+			gameDisplay.blit(pausedplay_img, (0, 0))
+		else:
+			gameDisplay.blit(pausedmenu_img, (0, 0))
+		pygame.display.update()												# réactualise l'affichage #
+
+	draw_pause()
 
 	while paused:										# tant que paused = vrai #
 		for event in pygame.event.get():									
@@ -179,8 +202,20 @@ async def pause():																# fonction pause #
 				pygame.quit()
 				quit()									# ferme la fenêtre #
 			if event.type == pygame.KEYDOWN:						
-				if event.key == pygame.K_SPACE:			# si on appuie sur Espace #
-					paused = False						# paused = faux -> on sort de la boucle paused, le jeu reprend #
+				if event.key == pygame.K_UP or event.key == pygame.K_DOWN:	# flèches = on change de choix #
+					if pause_choice == "play":
+						pause_choice = "menu"
+					else:
+						pause_choice = "play"
+					draw_pause()
+				if event.key == pygame.K_SPACE or event.key == pygame.K_RETURN:		# Espace ou Entrée valide le choix #
+					if pause_choice == "play":
+						paused = False						# paused = faux -> on sort de la boucle paused, le jeu reprend #
+					else:
+						lifeNb_one = 3					# retour au menu : la prochaine partie repart avec 3 vies #
+						lifeNb_two = 3
+						await game_intro()
+						await gameLoop()
 				elif event.key == pygame.K_ESCAPE:		# si on appuie sur Echap #
 					pygame.quit()
 					quit()								# ferme la fenêtre #
@@ -383,41 +418,6 @@ def boostDisplay_two(boostType_two, boost_speed_two, boost_double_two, boost_shi
 			boostLaser_display_two(time_boostlaser_two, boostSlots_two[boostPos_two])
 		boostPos_two += 1
 
-def hitboxUP_one(lead_x_one, lead_y_one, block_size):		# case juste au dessus de la tête du serpent 1 #
-	hitbox_xup_one = lead_x_one 							# définit X #
-	hitbox_yup_one = lead_y_one - block_size				# définit Y #
-	return hitbox_xup_one, hitbox_yup_one
-def hitboxDOWN_one(lead_x_one, lead_y_one, block_size):		# case juste en bas de la tête #
-	hitbox_xdown_one = lead_x_one
-	hitbox_ydown_one = lead_y_one + block_size
-	return hitbox_xdown_one, hitbox_ydown_one
-def hitboxRIGHT_one(lead_x_one, lead_y_one, block_size):	# case juste à droite de la tête #
-	hitbox_xright_one = lead_x_one + block_size
-	hitbox_yright_one = lead_y_one
-	return hitbox_xright_one, hitbox_yright_one
-def hitboxLEFT_one(lead_x_one, lead_y_one, block_size):		# case juste à gauche de la tête #
-	hitbox_xleft_one = lead_x_one - block_size
-	hitbox_yleft_one = lead_y_one
-	return hitbox_xleft_one, hitbox_yleft_one
-
-def hitboxUP_two(lead_x_two, lead_y_two, block_size):		# idem pour serpent 2 #
-	hitbox_xup_two = lead_x_two
-	hitbox_yup_two = lead_y_two - block_size
-	return hitbox_xup_two, hitbox_yup_two
-def hitboxDOWN_two(lead_x_two, lead_y_two, block_size):
-	hitbox_xdown_two = lead_x_two
-	hitbox_ydown_two = lead_y_two + block_size
-	return hitbox_xdown_two, hitbox_ydown_two
-def hitboxRIGHT_two(lead_x_two, lead_y_two, block_size):
-	hitbox_xright_two = lead_x_two + block_size
-	hitbox_yright_two = lead_y_two
-	return hitbox_xright_two, hitbox_yright_two
-def hitboxLEFT_two(lead_x_two, lead_y_two, block_size):
-	hitbox_xleft_two = lead_x_two - block_size
-	hitbox_yleft_two = lead_y_two
-	return hitbox_xleft_two, hitbox_yleft_two
-
-
 # ------- les 2 fonctions suivantes sont essentielles ------------------------------------------------------------------------------------------------------------------------------ #
 
 # cette fonction affiche tout ce qui constituent le jeu #
@@ -543,6 +543,76 @@ async def animation_death(gameOver_draw, gameOver_win_two, gameOver_win_one, blo
 			await asyncio.sleep(0.1)
 
 
+
+# ------- le bot du mode 1 joueur : il conduit le serpent 2 ------------------------------------------------------------------------------------------------------------------------------------- #
+
+bot_moves = {"left": (-1, 0), "right": (1, 0), "up": (0, -1), "down": (0, 1)}
+bot_opposite = {"left": "right", "right": "left", "up": "down", "down": "up"}
+bot_cols = area_width // block_size		# nombre de cases en largeur #
+bot_rows = area_height // block_size	# nombre de cases en hauteur #
+
+def bot_cell(x, y):		# transforme des coordonnées en pixels en une case de la grille (les bords se rejoignent) #
+	return (int((x - border_size) // block_size) % bot_cols, int((y - border_size) // block_size) % bot_rows)
+
+def bot_step(cell, direction):		# la case voisine dans une direction #
+	dx, dy = bot_moves[direction]
+	return ((cell[0] + dx) % bot_cols, (cell[1] + dy) % bot_rows)
+
+def bot_direction(head_x, head_y, direction, enemy_list, enemy_direction, targets):	# choisit la prochaine direction du bot #
+	if random.random() < bot_mistake_chance:
+		return direction
+
+	start = bot_cell(head_x, head_y)
+	blocked = set(bot_cell(x, y) for x, y in enemy_list)	# le corps de l'adversaire #
+	goals = set(bot_cell(x, y) for x, y in targets)		# pommes et boosts #
+	cut_off = {}		# case devant l'adversaire -> nombre de boucles avant qu'il y arrive #
+	if enemy_list:
+		enemy_head = bot_cell(enemy_list[-1][0], enemy_list[-1][1])
+		for d in bot_moves:
+			blocked.add(bot_step(enemy_head, d))		# les cases où la tête adverse peut aller #
+		ahead = enemy_head
+		for n in range(1, 6):
+			ahead = bot_step(ahead, enemy_direction)
+			if n >= 2:
+				cut_off[ahead] = n		# le bot essaie de lui couper la route, s'il peut y arriver avant lui #
+
+	first_move = {}		# pour chaque case atteinte, la première direction prise pour y arriver #
+	distance = {}		# le nombre de cases pour y arriver #
+	queue = deque()
+	for d in bot_moves:
+		if d == bot_opposite[direction]:	# un serpent ne peut pas faire demi-tour #
+			continue
+		cell = bot_step(start, d)
+		if cell in blocked:
+			continue
+		first_move[cell] = d
+		distance[cell] = 1
+		queue.append(cell)
+
+	while queue:		# parcours en largeur : on trouve l'objectif le plus proche #
+		cell = queue.popleft()
+		if cell in goals or (cell in cut_off and distance[cell] < cut_off[cell]):
+			return first_move[cell]
+		for d in bot_moves:
+			nxt = bot_step(cell, d)
+			if nxt not in blocked and nxt not in first_move and nxt != start:
+				first_move[nxt] = first_move[cell]
+				distance[nxt] = distance[cell] + 1
+				queue.append(nxt)
+
+	if first_move:		# aucun objectif atteignable : on part vers la direction qui laisse le plus de place #
+		room = {}
+		for d in first_move.values():
+			room[d] = room.get(d, 0) + 1
+		return max(room, key=room.get)
+	return direction
+
+def bot_laser_hits(head_x, head_y, direction, target_x, target_y):	# vrai si la cible est dans la ligne de tir (le laser ne traverse pas les bords) #
+	dx, dy = bot_moves[direction]
+	if dx != 0:
+		return target_y == head_y and (target_x - head_x) * dx > 0
+	return target_x == head_x and (target_y - head_y) * dy > 0
+
 # ------- c'est la boucle principale ------------------------------------------------------------------------------------------------------------------------------------------------------------ #
 
 async def gameLoop():
@@ -581,6 +651,7 @@ async def gameLoop():
 	direction_change_two = False
 	gameExit = False					# empêche la boucle gameExit de se lancer #
 	gameOver = False					# empêche la boucle gameOver de se lancer #
+	lives_counted = False				# les vies de la manche n'ont pas encore été retirées #
 	gameOver_win_one = False			# serpent 1 n'a pas gagné #
 	gameOver_win_two = False			# serpent 2 n'a pas gagné #
 	gameOver_draw = False
@@ -646,13 +717,15 @@ async def gameLoop():
 
 		while gameOver == True:					# tant que gameOver = vrai #
 			
-			if gameOver_draw == True and lifeNb_one > 0 and lifeNb_two > 0:		# si il y a égalité #
-				lifeNb_two -= 1									# les deux serpents perdent une vie #
-				lifeNb_one -= 1
-			elif gameOver_win_two == True and lifeNb_one > 0:	# si le serpent 2 gagne #
-				lifeNb_one -= 1									# serpent 1 perd 1 vie #
-			elif gameOver_win_one == True and lifeNb_two > 0:	# si le serpent 1 gagne #
-				lifeNb_two -= 1									# serpent 2 perd une vie #
+			if lives_counted == False:		# on ne retire les vies qu'une fois par manche, pas à chaque boucle de l'écran de fin #
+				lives_counted = True
+				if gameOver_draw == True and lifeNb_one > 0 and lifeNb_two > 0:		# si il y a égalité #
+					lifeNb_two -= 1									# les deux serpents perdent une vie #
+					lifeNb_one -= 1
+				elif gameOver_win_two == True and lifeNb_one > 0:	# si le serpent 2 gagne #
+					lifeNb_one -= 1									# serpent 1 perd 1 vie #
+				elif gameOver_win_one == True and lifeNb_two > 0:	# si le serpent 1 gagne #
+					lifeNb_two -= 1									# serpent 2 perd une vie #
 
 			if lifeNb_one == 0 or lifeNb_two == 0:
 				gameDisplay.blit(background_img, (0, 0))
@@ -677,10 +750,11 @@ async def gameLoop():
 					if event.key == pygame.K_ESCAPE:	# si on appuie sur Echap #
 						pygame.quit()		
 						quit()				# la fenêtre se ferme #
-					if event.key == pygame.K_SPACE:		# si on appuie sur Espace à la fin d'une partie#
+					if event.key == pygame.K_SPACE or event.key == pygame.K_RETURN:		# Espace ou Entrée à la fin d'une partie = MENU #
 						lifeNb_one = 3					# les deux serpents reprennent 3 vies #
 						lifeNb_two = 3
-						await gameLoop()						# le jeu se relance #
+						await game_intro()				# retour au menu #
+						await gameLoop()						# puis le jeu se relance #
 
 			clock.tick(gameSpeed)
 			await asyncio.sleep(0)		# laisse le navigateur respirer (pygbag) #
@@ -742,7 +816,7 @@ async def gameLoop():
 							lead_x_change_one = 0
 							direction_change_one = False
 
-				if event.key == pygame.K_RSHIFT:		# active le sprint du serpent 1, sauf lorsque le boost laser est actif, dans ce cas le bouton active le laser #
+				if event.key == pygame.K_RSHIFT or (game_mode == 1 and event.key == pygame.K_LSHIFT):		# active le sprint du serpent 1 (les deux Maj en mode 1 joueur), sauf lorsque le boost laser est actif, dans ce cas le bouton active le laser #
 					if boost_laser_one == True and laser_active_one == False:
 						laser_active_one = True
 					elif sprintstock_one > 0:
@@ -751,7 +825,7 @@ async def gameLoop():
 				elif event.key == pygame.K_SPACE:			# si on appuie sur Espace #
 					await pause()									# on lance la boucle pause() #
 
-				if event.key == pygame.K_a:					# idem pour serpent 2 #
+				if game_mode == 2 and event.key in (pygame.K_a, pygame.K_q):					# idem pour serpent 2 #
 					if not direction_two == "right":
 						if direction_change_two == True:
 							direction_two = "left"
@@ -759,7 +833,7 @@ async def gameLoop():
 							lead_y_change_two = 0
 							direction_change_two = False
 
-				elif event.key == pygame.K_d:
+				elif game_mode == 2 and event.key == pygame.K_d:
 					if not direction_two == "left":
 						if direction_change_two == True:
 							direction_two = "right"
@@ -767,7 +841,7 @@ async def gameLoop():
 							lead_y_change_two = 0
 							direction_change_two = False
 
-				elif event.key == pygame.K_w:
+				elif game_mode == 2 and event.key in (pygame.K_w, pygame.K_z):
 					if not direction_two == "down":
 						if direction_change_two == True:
 							direction_two = "up"
@@ -775,7 +849,7 @@ async def gameLoop():
 							lead_x_change_two = 0
 							direction_change_two = False
 
-				elif event.key == pygame.K_s:
+				elif game_mode == 2 and event.key == pygame.K_s:
 					if not direction_two == "up":
 						if direction_change_two == True:
 							direction_two = "down"
@@ -783,7 +857,7 @@ async def gameLoop():
 							lead_x_change_two = 0
 							direction_change_two = False
 
-				if event.key == pygame.K_LSHIFT:		# active le sprint du serpent 2 #
+				if game_mode == 2 and event.key == pygame.K_LSHIFT:		# active le sprint du serpent 2 #
 					if boost_laser_two == True and laser_active_two == False:
 						laser_active_two = True
 					elif sprintstock_two > 0:
@@ -799,11 +873,30 @@ async def gameLoop():
 					zis4 = True
 
 			if event.type == pygame.KEYUP:			# tant que la touche est maintenue, le sprint est actif #
-				if event.key == pygame.K_RSHIFT:
+				if event.key == pygame.K_RSHIFT or (game_mode == 1 and event.key == pygame.K_LSHIFT):
 					sprint_one = False
-				if event.key == pygame.K_LSHIFT:
+				if game_mode == 2 and event.key == pygame.K_LSHIFT:
 					sprint_two = False
 
+
+		if game_mode == 1 and direction_change_two == True:		# en mode 1 joueur, le bot conduit le serpent 2 #
+			targets = [[randAppleX_one, randAppleY_one], [randAppleX_two, randAppleY_two]]
+			if zis1 == True:
+				targets.append([boostSpeedX, boostSpeedY])
+			if zis2 == True:
+				targets.append([boostDoubleX, boostDoubleY])
+			if zis3 == True:
+				targets.append([boostShieldX, boostShieldY])
+			if zis4 == True:
+				targets.append([boostLaserX, boostLaserY])
+			bot_choice = bot_direction(lead_x_two, lead_y_two, direction_two, snakeList_one, direction_one, targets)
+			if bot_choice != direction_two:
+				direction_two = bot_choice
+				lead_x_change_two = bot_moves[bot_choice][0] * block_size
+				lead_y_change_two = bot_moves[bot_choice][1] * block_size
+				direction_change_two = False
+			if boost_laser_two == True and laser_active_two == False and bot_laser_hits(lead_x_two, lead_y_two, direction_two, lead_x_one, lead_y_one):
+				laser_active_two = True		# le bot tire quand le joueur est dans sa ligne de mire #
 
 # ------------ on fait avancer le serpent, vérifie s'il passe sur une pomme ou un boost, et calcule les collisions ----------------------------------------------------------------------------------------------------------------------------- #
 		F = 1		# les serpents avancent de 1 case par loop #
@@ -926,10 +1019,6 @@ async def gameLoop():
 								laser_list_one.append(laser_block)
 								h += 1									
 
-					hitbox_xup_one, hitbox_yup_one = hitboxUP_one(lead_x_one, lead_y_one, block_size)				# on va chercher les coordonnées des carrés hitbox qui permettent de savoir qui gagne #
-					hitbox_xdown_one, hitbox_ydown_one = hitboxDOWN_one(lead_x_one, lead_y_one, block_size)			# lorsqu'un serpent rentre dans la tête d'un autre face à face #
-					hitbox_xright_one, hitbox_yright_one = hitboxRIGHT_one(lead_x_one, lead_y_one, block_size)
-					hitbox_xleft_one, hitbox_yleft_one = hitboxLEFT_one(lead_x_one, lead_y_one, block_size)
 
 				# puis du serpent 2 #
 				if f == 0 or sprint_two == True:	# si le sprint 2 est actif la boucle s'éxécute 3 fois, sinon 1 fois seulement #
@@ -1044,10 +1133,6 @@ async def gameLoop():
 								laser_list_two.append(laser_block)
 								h += 1			
 
-					hitbox_xup_two, hitbox_yup_two = hitboxUP_two(lead_x_two, lead_y_two, block_size)
-					hitbox_xdown_two, hitbox_ydown_two = hitboxDOWN_two(lead_x_two, lead_y_two, block_size)
-					hitbox_xright_two, hitbox_yright_two = hitboxRIGHT_two(lead_x_two, lead_y_two, block_size)
-					hitbox_xleft_two, hitbox_yleft_two = hitboxLEFT_two(lead_x_two, lead_y_two, block_size)		
 
 				# si un laser est activé, on calcule s'il touche et où #
 				if laser_active_one == True:
@@ -1082,77 +1167,16 @@ async def gameLoop():
 					if boost_shield_one == False:
 						snakeLenght_one -= laserHit_pos					
 
-				# on calcule s'il y a collision à chaque fois #
-				if direction_one == "left" and direction_two == "right" and lead_y_one == lead_y_two:	# tête vs tête, face à face #
-					if (snakeHead_one == [hitbox_xleft_two, hitbox_yleft_two] and snakeHead_two == [hitbox_xright_one, hitbox_yright_one]) or snakeHead_one == snakeHead_two:
-						if boost_shield_one == False and boost_shield_two == False:
-							gameOver = True	
-							gameOver_draw = True
-						elif boost_shield_one == False:
-							gameOver = True	
-							gameOver_win_two = True
-						elif boost_shield_two == False:
-							gameOver = True	
-							gameOver_win_one = True
-				elif direction_one == "right" and direction_two == "left" and lead_y_one == lead_y_two:
-					if (snakeHead_one == [hitbox_xright_two, hitbox_yright_two] and snakeHead_two == [hitbox_xleft_one, hitbox_yleft_one]) or snakeHead_one == snakeHead_two:
-						if boost_shield_one == False and boost_shield_two == False:
-							gameOver = True
-							gameOver_draw = True
-						elif boost_shield_one == False:
-							gameOver = True
-							gameOver_win_two = True
-						elif boost_shield_two == False:
-							gameOver = True
-							gameOver_win_one = True
-				elif direction_one == "up" and direction_two == "down" and lead_x_one == lead_x_two:
-					if (snakeHead_one == [hitbox_xup_two, hitbox_yup_two] and snakeHead_two == [hitbox_xdown_one, hitbox_ydown_one]) or snakeHead_one == snakeHead_two:
-						if boost_shield_one == False and boost_shield_two == False:
-							gameOver = True
-							gameOver_draw = True
-						elif boost_shield_one == False:
-							gameOver = True
-							gameOver_win_two = True
-						elif boost_shield_two == False:
-							gameOver = True
-							gameOver_win_one = True
-				elif direction_one == "down" and direction_two == "up" and lead_x_one == lead_x_two:
-					if (snakeHead_one == [hitbox_xdown_two, hitbox_ydown_two] and snakeHead_two == [hitbox_xup_one, hitbox_yup_one]) or snakeHead_one == snakeHead_two:
-						if boost_shield_one == False and boost_shield_two == False:
-							gameOver = True
-							gameOver_draw = True
-						elif boost_shield_one == False:
-							gameOver = True
-							gameOver_win_two = True
-						elif boost_shield_two == False:
-							gameOver = True
-							gameOver_win_one = True				
-				else:	# tête vs queue #
-					if gameOver == False:
-						for eachSegment in snakeList_one[:-1]:		# pour chaque bloc du serpent 1 sauf celui à la dernière place, qui stocke la tête #
-							if eachSegment == snakeHead_two:		# si le serpent 2 se cogne à la queue du serpent 1 #
-								if boost_shield_two == False:
-									gameOver = True
-									gameOver_win_one = True				# serpent 1 gagne #
-						for eachSegment in snakeList_two[:-1]:
-							if eachSegment == snakeHead_one:
-								if boost_shield_one == False:
-									gameOver = True
-									gameOver_win_two = True						
-
-				if gameOver == False:
-					if snakeHead_one == snakeHead_two:		# tête vs tête, pas face à face #
-						for eachSegment in snakeList_two[:-1]:		# en fonction la présence ou non des coordonnées d'un bloc de la queue d'un serpent sur les hitbox de l'autre #
-							if eachSegment == [hitbox_xup_one, hitbox_yup_one] or eachSegment == [hitbox_xdown_one, hitbox_ydown_one] or eachSegment == [hitbox_xright_one, hitbox_yright_one] or eachSegment == [hitbox_xleft_one, hitbox_yleft_one]:
-								if boost_shield_two == False:
-									gameOver = True
-									gameOver_win_one = True				# serpent 1 gagne #
-						for eachSegment in snakeList_one[:-1]:
-							if eachSegment == [hitbox_xup_two, hitbox_yup_two] or eachSegment == [hitbox_xdown_two, hitbox_ydown_two] or eachSegment == [hitbox_xright_two, hitbox_yright_two] or eachSegment == [hitbox_xleft_two, hitbox_yleft_two]:
-								if boost_shield_one == False:
-									gameOver = True
-									gameOver_win_two = True				# serpent 2 gagne #
-
+				# on calcule s'il y a collision à chaque fois : un serpent perd si sa tête touche l'autre serpent, tête comprise #
+				# (face à face, de côté ou à travers les bords, la règle est la même pour les deux serpents) #
+				if snakeHead_one in snakeList_two and boost_shield_one == False:	# la tête du serpent 1 touche le serpent 2 #
+					gameOver = True
+					gameOver_win_two = True
+				if snakeHead_two in snakeList_one and boost_shield_two == False:	# la tête du serpent 2 touche le serpent 1 #
+					gameOver = True
+					gameOver_win_one = True
+				if gameOver_win_one == True and gameOver_win_two == True:		# les deux perdent en même temps : égalité #
+					gameOver_draw = True
 
 # ------- on s'occupe des boosts et du sprint, puis on lance la boucle gameDisp() qui va afficher le jeu ---------------------------------------------------------------------------------------- #
 
@@ -1238,6 +1262,7 @@ async def gameLoop():
 
 		if gameOver == True:		# si quelqu'un perd, on lance l'animation de mort #
 			await animation_death(gameOver_draw, gameOver_win_two, gameOver_win_one, block_size, snakeList_one, snakeList_two, lead_x_one, lead_y_one, lead_x_two, lead_y_two, randAppleX_one,randAppleY_one, randAppleX_two, randAppleY_two, zis1, zis2, zis3, zis4, boostType_one, boostType_two, sprintstock_one, sprintstock_two, boostSpeedX, boostSpeedY, boostDoubleX, boostDoubleY, boostShieldX, boostShieldY, boostLaserX, boostLaserY, boost_speed_one, boost_double_one, boost_shield_one, boost_laser_one, laser_active_one, laser_list_one, slot1_one, slot2_one, slot3_one, slot4_one, boost_speed_two, boost_double_two, boost_shield_two, boost_laser_two, laser_active_two, laser_list_two, slot1_two, slot2_two, slot3_two, slot4_two, snake_one_hide, snake_two_hide)		
+			pygame.event.clear((pygame.KEYDOWN, pygame.KEYUP))	# on oublie les touches appuyées pendant l'animation (sinon Espace met en pause ou saute l'écran de fin) #
 
 		laser_active_one = False	# le laser ne reste activé que pendant une boucle #
 		laser_active_two = False

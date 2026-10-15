@@ -55,7 +55,7 @@ async def custom_site():
         __import__(__name__).__file__ = main
 
         # now make a prompt
-        msg  = "Click anywhere to start..."
+        msg  = "Menu: Space to play or pause\n\nControls: Arrow Keys / WASD / ZQSD\n\nBoosts: rShift / lShift (both work in 1 player mode)\n\nClick anywhere to start..."
         platform.window.infobox.innerText = msg
         print("\n"*4, f"    * Waiting for media user engagement. {msg} *" , "\n"*4)
 
